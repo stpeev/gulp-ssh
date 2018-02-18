@@ -173,14 +173,18 @@ class GulpSSH extends EventEmitter {
             const write = sftp.createWriteStream(filePath, options)
 
             write
+              .on('drain', function() {
+                outStream.emit('ssh2Data');
+              })
               .on('error', function (error) {
                 err = error
               })
               .on('finish', function () {
+                outStream.emit('ssh2End');
                 sftp.end()
                 if (err) callback(err)
                 else callback(null, file)
-              })
+              });
 
             if (file.isStream()) file.contents.pipe(write)
             else if (file.isBuffer()) write.end(file.contents)
@@ -209,11 +213,13 @@ class GulpSSH extends EventEmitter {
             .on('data', function (chunk) {
               chunkSize += chunk.length
               chunks.push(chunk)
+              outStream.emit('ssh2Data', chunk);
             })
             .on('error', function (err) {
               outStream.emit('error', err)
             })
             .on('end', function () {
+              outStream.emit('ssh2End');
               outStream.push(new File({
                 cwd: __dirname,
                 base: __dirname,
@@ -265,7 +271,13 @@ class GulpSSH extends EventEmitter {
       callback(err)
     }
 
-    return through.obj(function (file, encoding, callback) {
+    var outStream = through.obj(function (file, encoding, callback) {
+        _transform(file, encoding, callback);
+      },function (callback) {
+        end(null, callback)
+      });
+
+    function _transform(file, encoding, callback) {
       if (file.isNull()) {
         log('"' + colors.cyan(file.path) + '" has no content. Skipping.')
         return callback()
@@ -286,6 +298,9 @@ class GulpSSH extends EventEmitter {
           write
             .on('error', done)
             .on('finish', done)
+            .on('drain', function () {
+              outStream.emit('ssh2Data');
+            });
 
           if (file.isStream()) {
             file.contents.pipe(write)
@@ -300,9 +315,9 @@ class GulpSSH extends EventEmitter {
           }
         })
       })
-    }, function (callback) {
-      end(null, callback)
-    })
+    }
+
+    return outStream;
   }
 
   shell (commands, options) {
