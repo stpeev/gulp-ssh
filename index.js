@@ -297,7 +297,9 @@ class GulpSSH extends EventEmitter {
 
           write
             .on('error', done)
-            .on('finish', done)
+            .on('finish', function () {
+              outStream.emit('ssh2End');
+            })
             .on('drain', function () {
               outStream.emit('ssh2Data');
             });
